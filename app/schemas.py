@@ -41,8 +41,8 @@ class SuggestLocationRequest(BaseModel):
 
 
 class SuggestLocationResponse(BaseModel):
-    suggestions: list[str] = Field(default_factory=list)
-    confidence: Literal["high", "medium", "low"] = "low"
+    suggestions: list[str]
+    confidence: Literal["high", "medium", "low", "none"]
 
     # Back-compat: some older clients may still read `.suggestion`.
     @property

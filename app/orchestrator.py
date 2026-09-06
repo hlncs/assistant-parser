@@ -5,6 +5,7 @@ import logging
 from collections.abc import Awaitable
 from typing import Any, Literal, cast
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from openai import APIConnectionError, APITimeoutError, AuthenticationError, RateLimitError
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
@@ -163,56 +164,120 @@ SUGGEST_SYSTEM_PROMPT = (
 )
 
 
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+
+
+async def _geocode_search(http: httpx.AsyncClient, name: str) -> list[dict[str, Any]]:
+    try:
+        r = await http.get(GEOCODE_URL, params={"name": name, "count": 5, "language": "en"})
+        return (r.json() or {}).get("results", []) if r.is_success else []
+    except httpx.HTTPError:
+        return []
+
+
+def _label(hit: dict[str, Any]) -> str:
+    parts = [hit.get("name"), hit.get("admin1"), hit.get("country")]
+    return ", ".join(p for p in parts if p)
+
+
+async def _llm_spelling_candidates(query: str) -> list[str]:
+    """Ask the LLM for plausible spelling corrections. Bare place names only —
+    the geocoder will fill in admin/country when validating."""
+    client = get_openai_client()
+    prompt = (
+        "The user searched for a place but the geocoder found no match, "
+        "likely due to a typo. Suggest up to 3 correctly-spelled place names "
+        "that are close spelling/phonetic matches to the input.\n"
+        'Return ONLY JSON: {"candidates": ["Townsville", ...]}\n'
+        "Rules:\n"
+        "- Each candidate must be a REAL place you are confident exists.\n"
+        "- Only include candidates that share most letters or sound like the input. "
+        "  If nothing is close, return fewer candidates or an empty list.\n"
+        "- If a region/country hint is included (e.g. 'Tonsville, Australia'), "
+        "  candidates MUST be in that region.\n"
+        "- Do NOT pad with unrelated well-known places.\n"
+        "- No prose. No code fences. JSON only.\n"
+        f"User input: {query!r}"
+    )
+    try:
+        resp = await _safe_llm_call(client.chat.completions.create(
+            model=settings.openai_model,
+            messages=cast(list[ChatCompletionMessageParam],
+                          [{"role": "user", "content": prompt}]),
+            response_format={"type": "json_object"},
+            temperature=0,
+            seed=42,
+        ))
+        content = resp.choices[0].message.content or "{}"
+        data = json.loads(content)
+        cands = data.get("candidates", [])
+        return [str(c).strip() for c in cands if isinstance(c, str) and c.strip()][:3]
+    except (json.JSONDecodeError, HTTPException) as err:
+        log.warning("suggest_location: LLM candidate step failed: %s", err)
+        return []
+
+
 @router.post("/suggest_location", response_model=SuggestLocationResponse)
 async def suggest_location(body: SuggestLocationRequest) -> SuggestLocationResponse:
-    client = get_openai_client()
-    resp = await _safe_llm_call(client.chat.completions.create(
-        model=settings.openai_model,
-        messages=[
-            {"role": "system", "content": SUGGEST_SYSTEM_PROMPT},
-            {"role": "user", "content": body.input},
-        ],
-        temperature=0,
-        seed=42,
-    ))
-    content = (resp.choices[0].message.content or "").strip()
-    if content.startswith("```"):
-        content = content.strip("`")
-        if content.lower().startswith("json"):
-            content = content[4:].strip()
+    """
+    Two-stage lookup:
+      1. Direct geocode (handles correctly-spelled places).
+      2. If nothing found, ask the LLM for spelling candidates and validate
+         each against the geocoder. Only real, verified places are returned.
+    """
+    query = body.input.strip()
+    if not query:
+        return SuggestLocationResponse(suggestions=[], confidence="none")
 
-    suggestions: list[str] = []
-    confidence: ConfidenceT = "low"
-    try:
-        data = json.loads(content)
-        raw = data.get("suggestions") or []
-        if isinstance(raw, list):
-            suggestions = [str(s).strip() for s in raw if str(s).strip()][:3]
-        elif isinstance(data.get("suggestion"), str):  # backward-compat
-            s = data["suggestion"].strip()
-            if s:
-                suggestions = [s]
-        c = str(data.get("confidence", "low")).strip().lower()
-        if c in ("high", "medium", "low"):
-            confidence = cast(ConfidenceT, c)
-    except (json.JSONDecodeError, TypeError, AttributeError):
-        log.warning("suggest_location: unparseable LLM output=%r", content)
+    async with httpx.AsyncClient(timeout=10) as http:
+        # Stage 1: direct search — full query, then first token
+        results = await _geocode_search(http, query)
+        if not results and "," in query:
+            results = await _geocode_search(http, query.split(",", 1)[0].strip())
 
-    return SuggestLocationResponse(suggestions=suggestions, confidence=confidence)
+        # Extract region hint from the tail of the query, e.g. "Tonsville, Australia" → "australia"
+        region_hint = query.rsplit(",", 1)[1].strip().lower() if "," in query else ""
+
+        # Stage 2: LLM candidates, each verified by the geocoder
+        if not results:
+            for cand in await _llm_spelling_candidates(query):
+                hits = await _geocode_search(http, cand)
+                for hit in hits:
+                    if region_hint and region_hint not in (
+                        (hit.get("country") or "").lower(),
+                        (hit.get("admin1") or "").lower(),
+                    ):
+                        continue
+                    results.append(hit)
+                    break  # keep just the best hit per candidate
+
+    suggestions = [_label(h) for h in results if h.get("name")]
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for s in suggestions:
+        if s not in seen:
+            seen.add(s)
+            deduped.append(s)
+
+    confidence: Literal["high", "none"] = "high" if deduped else "none"
+    return SuggestLocationResponse(suggestions=deduped[:5], confidence=confidence)
 
 
-TRAVEL_SYSTEM_PROMPT = (
-    "You are a helpful travel assistant. "
-    "When the user mentions a destination and the answer could be improved by "
-    "knowing current weather (packing, clothing, itineraries, outdoor plans), "
-    "call the `get_forecast` tool first, then tailor your reply to the conditions.\n\n"
-    "Format your reply in Markdown:\n"
-    "- Use `##` for section headings when helpful.\n"
-    "- Use bullet lists (`- `) or numbered lists (`1. `) for enumerations "
-    "  (attractions, packing items, tips, itinerary steps).\n"
-    "- Bold key names with `**...**`.\n"
-    "- Keep paragraphs short (1–2 sentences). Never dump everything into one paragraph."
-)
+TRAVEL_SYSTEM_PROMPT = """You are a helpful travel assistant.
+
+Rules:
+- If the user asks about a location, activity, event, venue, restaurant, or
+  any specific detail you are not confident about, respond with exactly:
+  "I don't know enough about {topic} to answer reliably."
+  Do NOT invent place names, prices, addresses, timetables, or dates.
+- Call `get_forecast` whenever weather could improve the answer (packing,
+  clothing, itineraries, outdoor plans, fishing, hiking, beach visits).
+- Prefer concise, well-structured Markdown: short intro, then bullet or
+  numbered lists with **bold** labels.
+- If a small town / village is unfamiliar, name the nearest larger town
+  you DO know and answer for that instead, clearly stating the substitution.
+"""
 
 
 @router.post("/travel_chat", response_model=ChatResponse)
@@ -242,16 +307,21 @@ async def travel_chat(body: ChatRequest) -> ChatResponse:
     # Append the raw assistant message (with tool_calls) then each tool result.
     messages.append(first.choices[0].message.model_dump())
     for tc in tool_calls:
-        result = await _dispatch_tool(tc.name, tc.arguments)
-        traces.append(
-            ToolCallTrace(id=tc.id, name=tc.name, arguments=tc.arguments, result=result)
-        )
+        trace = ToolCallTrace(id=tc.id, name=tc.name, arguments=tc.arguments)
+        try:
+            result = await _dispatch_tool(tc.name, tc.arguments)
+            trace.result = result
+            tool_content = json.dumps(result)
+        except AppError as e:
+            trace.error = f"{e.code}: {e.message}"
+            tool_content = json.dumps({"error": {"code": e.code, "message": e.message}})
+        except Exception as e:  # last-resort safety net
+            log.exception("travel_chat: tool %s crashed", tc.name)
+            trace.error = f"internal: {e}"
+            tool_content = json.dumps({"error": {"code": "internal", "message": str(e)}})
+        traces.append(trace)
         messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": json.dumps(result),
-            }
+            {"role": "tool", "tool_call_id": tc.id, "content": tool_content}
         )
 
     second = await _safe_llm_call(client.chat.completions.create(

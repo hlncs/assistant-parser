@@ -46,6 +46,7 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
   const [coords, setCoords] = useState(null)   // { lat, lon, label }
 
   useEffect(() => {
+    console.log('destination changed → clearing response', destination)
     setResponse(null)
     setError(null)
     setActivePrompt(null)
@@ -73,21 +74,33 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
   async function checkDestination() {
     if (!canAsk) return
     setChecking(true)
+    setError(null)
     setSuggestions([])
     setSuggestConfidence(null)
+    setCoords(null)
+
+    const raw = destination.trim()
+    const [city, ...rest] = raw.split(',').map((s) => s.trim())
+    const country = rest.length ? rest[rest.length - 1] : ''
+
     try {
-      const body = await suggestLocation(destination.trim())
+      // 1) Authoritative lookup via Open-Meteo geocoder
+      const geo = await geocode({ city, country })
+      if (geo && geo.lat != null && geo.lon != null) {
+        setCoords({ lat: geo.lat, lon: geo.lon, label: geo.display_name || raw })
+        return
+      }
+    } catch { /* fall through to LLM suggestions */ }
+
+    // 2) Fallback: ask the LLM for spelling corrections
+    try {
+      const body = await suggestLocation(raw)
       const list = Array.isArray(body?.suggestions) ? body.suggestions : []
-      if (body?.confidence === 'high' && list.length === 1) {
-        // Exact / corrected match — accept, geocode, show map
-        if (list[0] !== destination.trim()) onDestinationChange(list[0])
-        await locateAndShow(list[0])
-      } else if (list.length > 0) {
+      if (list.length > 0) {
         setSuggestions(list)
-        setSuggestConfidence(body.confidence)
-        setCoords(null)
+        setSuggestConfidence(body?.confidence ?? null)
       } else {
-        setCoords(null)
+        setError(`⚠️ We couldn't find "${raw}". Please check the spelling or try a nearby town.`)
       }
     } catch (err) {
       setError(err.message)
@@ -112,9 +125,14 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
     setActivePrompt(message)
     try {
       const body = await askTravel(message)
+      console.log('travel_chat response:', body)
+      if (!body || typeof body.reply !== 'string') {
+        setError('The assistant returned an empty response. Please try again.')
+        return
+      }
       setResponse(body)
     } catch (err) {
-      setError(err.message)
+      setError(err.message || 'Request failed.')
     } finally {
       setLoading(false)
     }

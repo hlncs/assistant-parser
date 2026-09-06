@@ -59,28 +59,25 @@ export default function WeatherTab({ city, country, onLocationChange, otherLocat
     setCoords(null)
     setSuggestions([])
     try {
-      const [data, geo] = await Promise.all([
+      const [f, geo] = await Promise.all([
         getForecast({ city: cityArg, country: countryArg, units: unitsArg }),
         geocode({ city: cityArg, country: countryArg }).catch(() => null),
       ])
-      setForecast(data)
+      setForecast(f)
       setDisplayUnits(unitsArg)
       setCoords(geo)
     } catch (err) {
       setError(err.message)
-      // If the location wasn't recognised, ask the LLM to suggest alternatives.
-      if (/invalid_location|no geocoding match/i.test(err.message)) {
-        const raw = [cityArg, countryArg].filter(Boolean).join(', ')
-        setSuggestLoading(true)
-        try {
-          const s = await suggestLocation(raw)
-          setSuggestions(s?.suggestions ?? [])
-        } catch {
-          /* ignore suggest failure */
-        } finally {
-          setSuggestLoading(false)
+      // Auto-fetch suggestions on any lookup failure
+      try {
+        const q = countryArg ? `${cityArg}, ${countryArg}` : cityArg
+        const body = await suggestLocation(q)
+        if (Array.isArray(body?.suggestions) && body.suggestions.length) {
+          setSuggestions(body.suggestions)
+        } else {
+          setError("⚠️ We couldn't find that location. Please check the spelling or try a nearby town.")
         }
-      }
+      } catch { /* ignore */ }
     } finally {
       setLoading(false)
     }

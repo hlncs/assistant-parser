@@ -1,16 +1,17 @@
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
+// Reads the body once and either returns the parsed JSON (on 2xx)
+// or throws a friendly Error (on non-2xx).
 async function handleResponse(res) {
-  if (res.ok) return res.json()
+  let body
+  try { body = await res.json() } catch { /* non-JSON body */ }
 
-  let detail = ''
-  try {
-    const body = await res.json()
-    detail = body?.detail || body?.error?.message || ''
-  } catch { /* ignore */ }
+  if (res.ok) return body
 
-  if (res.status === 503) throw new Error(detail || 'The assistant is temporarily unavailable. Please try again in a moment.')
+  const detail = body?.detail
+  if (res.status === 400) throw new Error(detail || "We couldn't find that location. Try a nearby town or check spelling.")
   if (res.status === 429) throw new Error(detail || 'The assistant is busy right now. Please try again shortly.')
+  if (res.status === 503) throw new Error(detail || 'The assistant is temporarily unavailable. Please try again in a moment.')
   if (res.status >= 500)  throw new Error(detail || 'Something went wrong on our side. Please try again.')
   throw new Error(detail || `Request failed (${res.status}).`)
 }
@@ -18,7 +19,7 @@ async function handleResponse(res) {
 async function safeFetch(url, options) {
   try {
     const res = await fetch(url, options)
-    return await handleResponse(res)
+    return await handleResponse(res)   // returns parsed JSON on success
   } catch (err) {
     if (err instanceof TypeError) {
       throw new Error('Cannot reach the server. Please check your connection and try again.')
