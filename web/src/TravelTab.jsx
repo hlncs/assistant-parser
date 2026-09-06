@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { askTravel } from './api'
+import { askTravel, suggestLocation } from './api'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -26,7 +26,12 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [response, setResponse] = useState(null)
-  const [activePrompt, setActivePrompt] = useState(null)
+  const [activePrompt, setActivePrompt] = useState('')
+
+  // ── NEW: suggestion state ──
+  const [suggestions, setSuggestions] = useState([])
+  const [suggestConfidence, setSuggestConfidence] = useState(null)
+  const [checking, setChecking] = useState(false)
 
   useEffect(() => {
     setResponse(null)
@@ -34,8 +39,38 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
     setActivePrompt(null)
   }, [destination])
 
-  const canAsk = Boolean(destination.trim())
-  const canCopy = Boolean(otherLocation) && otherLocation !== destination
+  const canAsk = Boolean(destination?.trim())
+  const canCopy = Boolean(otherLocation?.trim())
+
+  async function checkDestination() {
+    if (!canAsk) return
+    setChecking(true)
+    setSuggestions([])
+    setSuggestConfidence(null)
+    try {
+      const body = await suggestLocation(destination.trim())
+      const list = Array.isArray(body?.suggestions) ? body.suggestions : []
+      // Show chips only if not high-confidence exact match
+      if (body?.confidence !== 'high' && list.length > 0) {
+        setSuggestions(list)
+        setSuggestConfidence(body.confidence)
+      } else if (list.length === 1 && list[0] !== destination.trim()) {
+        // High confidence but corrected spelling — still offer the fix
+        setSuggestions(list)
+        setSuggestConfidence('high')
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  function applySuggestion(s) {
+    onDestinationChange(s)
+    setSuggestions([])
+    setSuggestConfidence(null)
+  }
 
   async function ask(template) {
     if (!canAsk) return
@@ -75,12 +110,53 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
           <div className="form">
             <label>
               Destination
-              <input
-                value={destination}
-                onChange={(e) => onDestinationChange(e.target.value)}
-                placeholder="Tokyo, Japan"
-              />
+              <div className="input-with-action">
+                <input
+                  value={destination}
+                  onChange={(e) => {
+                    onDestinationChange(e.target.value)
+                    setSuggestions([])
+                    setSuggestConfidence(null)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      checkDestination()
+                    }
+                  }}
+                  placeholder="Tokyo, Japan"
+                />
+                <button
+                  type="button"
+                  className="search-loc-btn"
+                  disabled={!canAsk || checking}
+                  onClick={checkDestination}
+                  title="Check / correct this destination"
+                  aria-label="Check location"
+                >
+                  🔍 {checking ? 'Checking…' : 'Search'}
+                </button>
+              </div>
             </label>
+
+            {suggestions.length > 0 && (
+              <>
+                <p className="error">⚠️ No geocoding match for '{destination.trim()}'</p>
+                <div className="suggest-row" role="group" aria-label="Did you mean">
+                  <span className="suggest-label">Did you mean…?</span>
+                  {suggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="suggest-chip"
+                      onClick={() => applySuggestion(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           <section className="insights-section">
