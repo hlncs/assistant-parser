@@ -52,5 +52,16 @@ export async function suggestLocation(input) {
   })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`)
-  return body // { suggestion, confidence }
+  return body // { suggestions: string[], confidence: 'high'|'medium'|'low' }
+}
+
+export async function askTravel(message) {
+  const res = await fetch(`${BASE}/travel_chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`)
+  return body // { reply, tool_calls }
 }

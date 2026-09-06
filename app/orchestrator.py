@@ -180,3 +180,75 @@ async def suggest_location(body: SuggestLocationRequest) -> SuggestLocationRespo
         log.warning("suggest_location: unparseable LLM output=%r", content)
 
     return SuggestLocationResponse(suggestions=suggestions, confidence=confidence)
+
+
+TRAVEL_SYSTEM_PROMPT = (
+    "You are a concise, friendly travel assistant.\n"
+    "You have ONE tool: `get_forecast(location, units)` — CURRENT weather only.\n"
+    "\n"
+    "Rules:\n"
+    "1. Call `get_forecast` ONLY when weather is materially relevant "
+    "   (packing lists, what to wear, outdoor activity timing, weather-sensitive itineraries).\n"
+    "2. For general travel questions (visas, currency, culture, safety, best time to visit, "
+    "   attractions, food), answer directly from general knowledge — do NOT call the tool.\n"
+    "3. If you use tool data, ground your answer in it. Never invent specific numbers.\n"
+    "4. If asked about live prices, flight availability, or real-time events, say plainly "
+    "   that you don't have live data and suggest what the user should check.\n"
+    "\n"
+    "Formatting (IMPORTANT — output valid Markdown):\n"
+    "- Start with a one-sentence summary.\n"
+    "- Use `##` for section headings when helpful.\n"
+    "- Use bullet lists (`- `) or numbered lists (`1. `) for enumerations "
+    "  (attractions, packing items, tips, itinerary steps).\n"
+    "- Bold key names with `**...**`.\n"
+    "- Keep paragraphs short (1–2 sentences). Never dump everything into one paragraph."
+)
+
+
+@router.post("/travel_chat", response_model=ChatResponse)
+async def travel_chat(body: ChatRequest) -> ChatResponse:
+    client = get_openai_client()
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": TRAVEL_SYSTEM_PROMPT},
+        {"role": "user", "content": body.message},
+    ]
+
+    first = await client.chat.completions.create(
+        model=settings.openai_model,
+        messages=cast(list[ChatCompletionMessageParam], messages),
+        tools=cast(list[ChatCompletionToolParam], TOOLS),
+        tool_choice="auto",
+        temperature=0.2,
+        seed=42,
+    )
+    parsed = parse_chat_completion(first)
+    traces: list[ToolCallTrace] = []
+    tool_calls = [p for p in parsed if isinstance(p, ToolCallRequest)]
+
+    if not tool_calls:
+        msg = next((p for p in parsed if isinstance(p, AssistantMessage)), None)
+        return ChatResponse(reply=(msg.content if msg else ""), tool_calls=[])
+
+    # Append the raw assistant message (with tool_calls) then each tool result.
+    messages.append(first.choices[0].message.model_dump())
+    for tc in tool_calls:
+        result = await _dispatch_tool(tc.name, tc.arguments)
+        traces.append(
+            ToolCallTrace(id=tc.id, name=tc.name, arguments=tc.arguments, result=result)
+        )
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": json.dumps(result),
+            }
+        )
+
+    second = await client.chat.completions.create(
+        model=settings.openai_model,
+        messages=cast(list[ChatCompletionMessageParam], messages),
+        temperature=0.2,
+        seed=42,
+    )
+    reply = (second.choices[0].message.content or "").strip()
+    return ChatResponse(reply=reply, tool_calls=traces)

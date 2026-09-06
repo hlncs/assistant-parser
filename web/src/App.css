@@ -265,3 +265,53 @@ h1 { margin-bottom: 1.5rem; }
   transition: background 120ms;
 }
 .suggest-option:hover { background: #fef3c7; }
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 1.25rem;
+}
+.tab {
+  padding: 0.6rem 1.1rem;
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: color 120ms, border-color 120ms;
+}
+.tab:hover { color: #2563eb; }
+.tab-active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+.markdown { line-height: 1.55; color: #1f2937; }
+.markdown h2 {
+  font-size: 1.05rem;
+  margin: 1rem 0 0.35rem;
+  color: #111827;
+}
+.markdown h3 {
+  font-size: 0.95rem;
+  margin: 0.8rem 0 0.25rem;
+  color: #111827;
+}
+.markdown p { margin: 0.4rem 0; }
+.markdown ul, .markdown ol {
+  margin: 0.35rem 0 0.6rem;
+  padding-left: 1.25rem;
+}
+.markdown li { margin: 0.2rem 0; }
+.markdown li > p { margin: 0; }
+.markdown strong { color: #111827; }
+.markdown code {
+  background: #f3f4f6;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.88em;
+}

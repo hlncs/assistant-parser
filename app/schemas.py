@@ -16,6 +16,7 @@ class ForecastResponse(BaseModel):
     condition: str
     forecast_time_utc: str
     provider: str
+    timezone: str | None = None
 
 
 class ChatRequest(BaseModel):

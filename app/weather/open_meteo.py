@@ -72,7 +72,12 @@ class OpenMeteoProvider:
 
         fx = await self._get(
             FORECAST_URL,
-            {"latitude": lat, "longitude": lon, "current_weather": "true"},
+            {
+                "latitude": lat,
+                "longitude": lon,
+                "current_weather": "true",
+                "timezone": "auto",
+            },
         )
 
         cw = fx.get("current_weather") or {}
@@ -83,6 +88,9 @@ class OpenMeteoProvider:
             location=resolved or location,
             temperature_c=float(cw["temperature"]),
             condition=_condition(int(cw.get("weathercode", -1))),
-            forecast_time_utc=f"{cw['time']}Z" if not cw["time"].endswith("Z") else cw["time"],
+            forecast_time_utc=(
+                f"{cw['time']}Z" if not cw["time"].endswith("Z") else cw["time"]
+            ),
+            timezone=fx.get("timezone"),   # e.g. "Asia/Tokyo"
             provider=self.name,
         )

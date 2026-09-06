@@ -217,7 +217,23 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Node / frontend
+# Node / Vite
 web/node_modules/
 web/dist/
 web/.vite/
+web/*.log
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Playwright
+web/test-results/
+web/playwright-report/
+web/.playwright/
