@@ -25,7 +25,10 @@ TOOLS: list[dict] = [
                 "properties": {
                     "location": {
                         "type": "string",
-                        "description": "City name, optionally with country. e.g. 'Sydney, Australia'.",
+                        "description": (
+                            "City name, optionally with country. "
+                            "e.g. 'Sydney, Australia'."
+                        ),
                     },
                     "units": {
                         "type": "string",

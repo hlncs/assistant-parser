@@ -29,7 +29,11 @@ def _fake_completion(*, content: str | None = None, tool_calls: list | None = No
         }
 
     completion = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=tool_calls or []))]
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content, tool_calls=tool_calls or [])
+            )
+        ]
     )
     completion.model_dump = dump  # type: ignore[attr-defined]
     return completion

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.errors import register_error_handlers
-from app.logging import configure_logging, correlation_middleware
+from app.logging import configure_logging
 from app.orchestrator import router as chat_router
 from app.weather.router import router as tools_router
 

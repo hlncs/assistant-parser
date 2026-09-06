@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getForecast, geocode } from './api'
+import { getForecast, geocode, suggestLocation } from './api'
 import MapView from './MapView'
 import InsightsPane from './InsightsPane'
 import './App.css'
@@ -10,35 +10,77 @@ function formatTemp(celsius, units) {
   return `${celsius.toFixed(1)}°C`
 }
 
+// Split "City, Country" back into two fields.
+function splitLocation(s) {
+  const parts = s.split(',').map((p) => p.trim()).filter(Boolean)
+  if (parts.length <= 1) return { city: parts[0] || '', country: '' }
+  // First part = city; join the rest as "region, country" — the backend
+  // geocoder is fine with either "City, Country" or "City, Region, Country".
+  return { city: parts[0], country: parts.slice(1).join(', ') }
+}
+
 export default function App() {
   const [city, setCity] = useState('Sydney')
   const [country, setCountry] = useState('Australia')
   const [units, setUnits] = useState('metric')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [suggestion, setSuggestion] = useState(null)   // { text, confidence }
   const [forecast, setForecast] = useState(null)
   const [displayUnits, setDisplayUnits] = useState('metric')
   const [coords, setCoords] = useState(null)
 
-  async function onSubmit(e) {
-    e.preventDefault()
+  async function runForecast(nextCity, nextCountry) {
     setLoading(true)
     setError(null)
+    setSuggestion(null)
     setForecast(null)
     setCoords(null)
     try {
       const [data, geo] = await Promise.all([
-        getForecast({ city: city.trim(), country: country.trim(), units }),
-        geocode({ city: city.trim(), country: country.trim() }).catch(() => null),
+        getForecast({ city: nextCity, country: nextCountry, units }),
+        geocode({ city: nextCity, country: nextCountry }).catch(() => null),
       ])
       setForecast(data)
       setDisplayUnits(units)
       setCoords(geo)
     } catch (err) {
-      setError(err.message)
+      if (err.code === 'invalid_location') {
+        const raw = nextCountry ? `${nextCity}, ${nextCountry}` : nextCity
+        try {
+          const s = await suggestLocation(raw)
+          const list = (s.suggestions || [])
+            .filter((x) => x && x.toLowerCase() !== raw.toLowerCase())
+          if (list.length > 0) {
+            setSuggestion({ options: list, confidence: s.confidence })
+          } else {
+            setError(
+              `We couldn't find "${raw}". Try adding a state or region ` +
+              `(e.g. "Stockton, California, USA").`
+            )
+          }
+        } catch {
+          setError(`We couldn't find "${raw}". Please check the spelling.`)
+        }
+      } else {
+        setError(err.message)
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  function onSubmit(e) {
+    e.preventDefault()
+    runForecast(city.trim(), country.trim())
+  }
+
+  function applySuggestion(text) {
+    const { city: c, country: co } = splitLocation(text)
+    setCity(c)
+    setCountry(co)
+    setSuggestion(null)
+    runForecast(c, co)
   }
 
   return (
@@ -46,7 +88,6 @@ export default function App() {
       <h1>Weather Forecast</h1>
 
       <div className="layout">
-        {/* LEFT column: form + forecast + map */}
         <div className="col-main">
           <form onSubmit={onSubmit} className="form">
             <label>
@@ -58,7 +99,6 @@ export default function App() {
                 placeholder="Sydney"
               />
             </label>
-
             <label>
               Country
               <input
@@ -67,7 +107,6 @@ export default function App() {
                 placeholder="Australia"
               />
             </label>
-
             <label>
               Units
               <select value={units} onChange={(e) => setUnits(e.target.value)}>
@@ -75,13 +114,45 @@ export default function App() {
                 <option value="imperial">Imperial (°F)</option>
               </select>
             </label>
-
             <button type="submit" disabled={loading || !city.trim()}>
               {loading ? 'Fetching…' : 'Get Forecast'}
             </button>
           </form>
 
           {error && <div className="error">⚠️ {error}</div>}
+
+          {suggestion && (
+            <div className="suggest">
+              <div>
+                Did you mean…
+                <span className={`confidence conf-${suggestion.confidence}`}>
+                  {suggestion.confidence} confidence
+                </span>
+              </div>
+              <ul className="suggest-list">
+                {suggestion.options.map((opt) => (
+                  <li key={opt}>
+                    <button
+                      type="button"
+                      className="suggest-option"
+                      onClick={() => applySuggestion(opt)}
+                    >
+                      {opt}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="suggest-actions">
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => setSuggestion(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
 
           {forecast && (
             <div className="card">
@@ -98,7 +169,6 @@ export default function App() {
           {coords && <MapView lat={coords.lat} lon={coords.lon} label={coords.label} />}
         </div>
 
-        {/* RIGHT column: canned prompts + LLM response */}
         <InsightsPane location={forecast?.location ?? null} />
       </div>
     </div>

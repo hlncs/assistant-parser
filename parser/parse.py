@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
-import logging
 from typing import Any
 
 from .models import AssistantMessage, ParsedItem, ParserError, ToolCallRequest
@@ -21,6 +21,7 @@ def _to_dict(obj: Any) -> dict[str, Any]:
 
 
 _LLAMA_TOOL_RE = re.compile(r"\{.*\}", re.DOTALL)
+_LLAMA_TAG = "<|python_tag|>"
 
 
 def _try_extract_llama_tool_call(content: str) -> ToolCallRequest | None:
@@ -31,7 +32,9 @@ def _try_extract_llama_tool_call(content: str) -> ToolCallRequest | None:
     """
     if not content:
         return None
-    stripped = content.strip().lstrip("<|python_tag|>").strip()
+    stripped = content.strip()
+    if stripped.startswith(_LLAMA_TAG):
+        stripped = stripped[len(_LLAMA_TAG):].strip()
     match = _LLAMA_TOOL_RE.search(stripped)
     if not match:
         return None

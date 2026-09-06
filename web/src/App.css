@@ -202,3 +202,66 @@ h1 { margin-bottom: 1.5rem; }
   padding: 0;
 }
 .link-btn:hover { text-decoration: underline; }
+
+.suggest {
+  padding: 0.9rem 1.1rem;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  border-radius: 12px;
+  color: #78350f;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.confidence {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.conf-high   { background: #dcfce7; color: #14532d; }
+.conf-medium { background: #fef3c7; color: #78350f; }
+.conf-low    { background: #fee2e2; color: #7f1d1d; }
+
+.suggest-actions { display: flex; gap: 0.5rem; }
+.suggest-actions .btn-primary {
+  padding: 0.45rem 0.85rem;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+.suggest-actions .btn-ghost {
+  padding: 0.45rem 0.85rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+}
+
+.suggest-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.25rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.suggest-option {
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  background: #fff;
+  color: #78350f;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.suggest-option:hover { background: #fef3c7; }

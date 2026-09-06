@@ -9,7 +9,13 @@ from fastapi import APIRouter
 from app.config import settings
 from app.errors import AppError
 from app.openai_client import TOOLS, get_openai_client
-from app.schemas import ChatRequest, ChatResponse, ToolCallTrace
+from app.schemas import (
+    ChatRequest,
+    ChatResponse,
+    SuggestLocationRequest,
+    SuggestLocationResponse,
+    ToolCallTrace,
+)
 from app.weather.router import get_forecast_direct
 from parser import AssistantMessage, ToolCallRequest, parse_chat_completion
 
@@ -112,3 +118,59 @@ async def chat(body: ChatRequest) -> ChatResponse:
     parsed2 = parse_chat_completion(second)
     reply = next((p.content for p in parsed2 if isinstance(p, AssistantMessage)), "")
     return ChatResponse(reply=reply, tool_calls=traces)
+
+
+SUGGEST_SYSTEM_PROMPT = (
+    "You help resolve ambiguous or misspelled place names for a weather app.\n"
+    "Given the user's input, return ONLY a JSON object:\n"
+    '  {"suggestions": ["City, Region, Country", ...], "confidence": "high"|"medium"|"low"}\n'
+    "Rules:\n"
+    "- Return up to 3 suggestions, most likely first.\n"
+    "- If the input is ambiguous (e.g. 'Stockton, USA' — many US cities share the name), "
+    "  disambiguate by adding the state/region (e.g. 'Stockton, California, USA', "
+    "  'Stockton, Missouri, USA'). Prefer the largest / most well-known cities first.\n"
+    "- If the input is misspelled, correct it (e.g. 'Woollongong' -> 'Wollongong, Australia').\n"
+    "- If the input is already unambiguous, return it as the single suggestion "
+    "with confidence 'high'.\n"
+    "- If you cannot guess, return {\"suggestions\": [], \"confidence\": \"low\"}.\n"
+    "- Use full country names (USA, Australia, United Kingdom, etc).\n"
+    "- No prose. No code fences. JSON only."
+)
+
+
+@router.post("/suggest_location", response_model=SuggestLocationResponse)
+async def suggest_location(body: SuggestLocationRequest) -> SuggestLocationResponse:
+    client = get_openai_client()
+    resp = await client.chat.completions.create(
+        model=settings.openai_model,
+        messages=[
+            {"role": "system", "content": SUGGEST_SYSTEM_PROMPT},
+            {"role": "user", "content": body.input},
+        ],
+        temperature=0,
+        seed=42,
+    )
+    content = (resp.choices[0].message.content or "").strip()
+    if content.startswith("```"):
+        content = content.strip("`")
+        if content.lower().startswith("json"):
+            content = content[4:].strip()
+
+    suggestions: list[str] = []
+    confidence = "low"
+    try:
+        data = json.loads(content)
+        raw = data.get("suggestions") or []
+        if isinstance(raw, list):
+            suggestions = [str(s).strip() for s in raw if str(s).strip()][:3]
+        elif isinstance(data.get("suggestion"), str):  # backward-compat
+            s = data["suggestion"].strip()
+            if s:
+                suggestions = [s]
+        c = str(data.get("confidence", "low")).strip().lower()
+        if c in {"high", "medium", "low"}:
+            confidence = c
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        log.warning("suggest_location: unparseable LLM output=%r", content)
+
+    return SuggestLocationResponse(suggestions=suggestions, confidence=confidence)

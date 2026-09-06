@@ -9,7 +9,10 @@ export async function getForecast({ city, country, units = 'metric' }) {
   })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error(body?.error?.message || `HTTP ${res.status}`)
+    const err = new Error(body?.error?.message || `HTTP ${res.status}`)
+    err.code = body?.error?.code
+    err.status = res.status
+    throw err
   }
   return body
 }
@@ -39,4 +42,15 @@ export async function askChat(message) {
     throw new Error(body?.error?.message || `HTTP ${res.status}`)
   }
   return body // { reply, tool_calls: [...] }
+}
+
+export async function suggestLocation(input) {
+  const res = await fetch(`${BASE}/suggest_location`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ input }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`)
+  return body // { suggestion, confidence }
 }

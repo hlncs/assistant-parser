@@ -33,3 +33,17 @@ class ToolCallTrace(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
+
+
+class SuggestLocationRequest(BaseModel):
+    input: str = Field(min_length=1, max_length=200)
+
+
+class SuggestLocationResponse(BaseModel):
+    suggestions: list[str] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low"] = "low"
+
+    # Back-compat: some older clients may still read `.suggestion`.
+    @property
+    def suggestion(self) -> str:
+        return self.suggestions[0] if self.suggestions else ""

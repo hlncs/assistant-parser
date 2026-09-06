@@ -73,7 +73,10 @@ def test_llama_style_tool_call_in_content():
         _completion(
             {
                 "role": "assistant",
-                "content": '{"name":"get_forecast","parameters":{"location":"Sydney, Australia","units":"metric"}}',
+                "content": (
+                    '{"name":"get_forecast",'
+                    '"parameters":{"location":"Sydney, Australia","units":"metric"}}'
+                ),
             }
         )
     )
