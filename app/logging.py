@@ -6,8 +6,12 @@ from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 
 from fastapi import Request
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger.json import JsonFormatter  # newer builds
 from starlette.responses import Response
+
+# fallback:
+# from pythonjsonlogger import jsonlogger
+# JsonFormatter = jsonlogger.JsonFormatter  # type: ignore[attr-defined]
 
 correlation_id: ContextVar[str] = ContextVar("correlation_id", default="-")
 
@@ -21,7 +25,7 @@ class CorrelationFilter(logging.Filter):
 def configure_logging() -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(
-        jsonlogger.JsonFormatter(
+        JsonFormatter(
             "%(asctime)s %(levelname)s %(name)s %(correlation_id)s %(message)s"
         )
     )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from openai import AsyncOpenAI
 
 from app.config import settings
@@ -14,7 +16,7 @@ def get_openai_client() -> AsyncOpenAI:
     return _client
 
 
-TOOLS: list[dict] = [
+TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {

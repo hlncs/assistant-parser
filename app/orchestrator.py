@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter
+from openai.types.chat import ChatCompletionMessageParam
 
 from app.config import settings
 from app.errors import AppError
@@ -21,6 +22,8 @@ from parser import AssistantMessage, ToolCallRequest, parse_chat_completion
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
+
+ConfidenceT = Literal["high", "medium", "low"]
 
 SYSTEM_PROMPT = (
     "You are a concise, friendly weather assistant.\n"
@@ -61,7 +64,7 @@ async def chat(body: ChatRequest) -> ChatResponse:
     # Turn 1 — force get_forecast so we always have grounded data
     first = await client.chat.completions.create(
         model=settings.openai_model,
-        messages=messages,
+        messages=cast(list[ChatCompletionMessageParam], messages),
         tools=TOOLS,
         tool_choice={"type": "function", "function": {"name": "get_forecast"}},
         temperature=0,
@@ -111,7 +114,7 @@ async def chat(body: ChatRequest) -> ChatResponse:
     # Turn 2
     second = await client.chat.completions.create(
         model=settings.openai_model,
-        messages=messages,
+        messages=cast(list[ChatCompletionMessageParam], messages),
         temperature=0,
         seed=42,
     )
@@ -157,7 +160,7 @@ async def suggest_location(body: SuggestLocationRequest) -> SuggestLocationRespo
             content = content[4:].strip()
 
     suggestions: list[str] = []
-    confidence = "low"
+    confidence: ConfidenceT = "low"
     try:
         data = json.loads(content)
         raw = data.get("suggestions") or []
@@ -168,8 +171,8 @@ async def suggest_location(body: SuggestLocationRequest) -> SuggestLocationRespo
             if s:
                 suggestions = [s]
         c = str(data.get("confidence", "low")).strip().lower()
-        if c in {"high", "medium", "low"}:
-            confidence = c
+        if c in ("high", "medium", "low"):
+            confidence = cast(ConfidenceT, c)
     except (json.JSONDecodeError, TypeError, AttributeError):
         log.warning("suggest_location: unparseable LLM output=%r", content)
 

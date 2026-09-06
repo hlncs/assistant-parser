@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import httpx
 
 from app.errors import AppError
@@ -65,10 +67,15 @@ class OpenMeteoProvider:
         lat, lon = top["latitude"], top["longitude"]
         resolved = ", ".join(x for x in [top.get("name"), top.get("country")] if x)
 
-        fx = await self._get(
-            FORECAST_URL,
-            {"latitude": lat, "longitude": lon, "current_weather": "true"},
-        )
+        params: dict[str, str | int | float] = {
+            "latitude": lat,
+            "longitude": lon,
+            "current_weather": "true",
+        }
+        resp = await self._client.get(FORECAST_URL, params=params)
+        resp.raise_for_status()
+        fx = cast(dict[str, Any], resp.json())
+
         cw = fx.get("current_weather") or {}
         if not cw:
             raise AppError("upstream_error", "No current_weather in response", 502)
