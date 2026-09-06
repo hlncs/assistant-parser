@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { askChat } from './api'
 
 const PROMPT_TEMPLATES = [
@@ -13,6 +13,14 @@ export default function InsightsPane({ location }) {
   const [error, setError] = useState(null)
   const [response, setResponse] = useState(null)
   const [activePrompt, setActivePrompt] = useState(null)
+
+  // Reset when the user fetches a new location.
+  useEffect(() => {
+    setLoading(false)
+    setError(null)
+    setResponse(null)
+    setActivePrompt(null)
+  }, [location])
 
   const canAsk = Boolean(location)
 
