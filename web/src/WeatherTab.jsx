@@ -100,7 +100,20 @@ export default function WeatherTab({ city, country, onLocationChange, otherLocat
 
   return (
     <>
-      <h1>Weather Forecast</h1>
+      <div className="page-header">
+        <h1>Weather Forecast</h1>
+        <button
+          type="button"
+          className="copy-loc-btn"
+          disabled={!canCopy}
+          onClick={copyFromTravel}
+          title={canCopy ? `Use "${otherLocation}" from Travel tab` : 'No destination on Travel tab yet'}
+          aria-label="Use Travel location"
+        >
+          ↔ Use Travel location
+        </button>
+      </div>
+
       <div className="layout">
         <div className="col-main">
           <form onSubmit={onSubmit} className="form">
@@ -123,17 +136,6 @@ export default function WeatherTab({ city, country, onLocationChange, otherLocat
 
             <button type="submit" disabled={loading || !city.trim()}>
               {loading ? 'Fetching…' : 'Get Forecast'}
-            </button>
-
-            <button
-              type="button"
-              className="copy-loc-btn"
-              disabled={!canCopy}
-              onClick={copyFromTravel}
-              title={canCopy ? `Use “${otherLocation}” from Travel tab` : 'No destination on Travel tab yet'}
-              aria-label="Copy location from Travel tab"
-            >
-              ↔ Use Travel location
             </button>
           </form>
 

@@ -87,7 +87,14 @@ export default function InsightsPane({ location }) {
 
       <section className="insights-section">
         <h3>Assistant Response</h3>
-        {loading && <div className="hint">Thinking…</div>}
+        {loading && (
+          <div className="thinking" role="status" aria-live="polite">
+            <span className="thinking-dots" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </span>
+            Thinking
+          </div>
+        )}
         {error && <div className="error">⚠️ {error}</div>}
         {!loading && !error && !response && (
           <div className="hint">Click a prompt above to get an analysis.</div>

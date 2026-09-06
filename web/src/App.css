@@ -62,6 +62,14 @@ h1 { margin-bottom: 1.5rem; }
 
 .col-main { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
 
+/* Single-column variant (Travel tab) — main column stretches full width */
+.layout.layout-single {
+  grid-template-columns: 1fr;
+}
+.layout.layout-single .col-main {
+  width: 100%;
+}
+
 /* ── form / forecast / map (existing rules kept) ─────────────────────────── */
 .form {
   display: grid;
@@ -493,3 +501,13 @@ h1 { margin-bottom: 1.5rem; }
   0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
   40%           { opacity: 1;   transform: translateY(-3px); }
 }
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.page-header h1 { margin: 0; }

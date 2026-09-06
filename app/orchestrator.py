@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from openai import APIConnectionError, APITimeoutError, AuthenticationError, RateLimitError
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
 from app.config import settings
@@ -53,6 +55,26 @@ async def _dispatch_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]
     return result.model_dump()
 
 
+async def _safe_llm_call[T](coro: Awaitable[T]) -> T:
+    try:
+        return await coro
+    except (APIConnectionError, APITimeoutError) as err:
+        raise HTTPException(
+            status_code=503,
+            detail="The assistant is temporarily unavailable. Please try again in a moment.",
+        ) from err
+    except RateLimitError as err:
+        raise HTTPException(
+            status_code=429,
+            detail="The assistant is busy right now. Please try again shortly.",
+        ) from err
+    except AuthenticationError as err:
+        raise HTTPException(
+            status_code=500,
+            detail="The assistant is misconfigured. Please contact support.",
+        ) from err
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(body: ChatRequest) -> ChatResponse:
     client = get_openai_client()
@@ -62,14 +84,14 @@ async def chat(body: ChatRequest) -> ChatResponse:
     ]
 
     # Turn 1 — force get_forecast so we always have grounded data
-    first = await client.chat.completions.create(
+    first = await _safe_llm_call(client.chat.completions.create(
         model=settings.openai_model,
         messages=cast(list[ChatCompletionMessageParam], messages),
         tools=cast(list[ChatCompletionToolParam], TOOLS),
         tool_choice={"type": "function", "function": {"name": "get_forecast"}},
         temperature=0,
         seed=42,
-    )
+    ))
     parsed = parse_chat_completion(first)
     traces: list[ToolCallTrace] = []
 
@@ -112,12 +134,12 @@ async def chat(body: ChatRequest) -> ChatResponse:
         )
 
     # Turn 2
-    second = await client.chat.completions.create(
+    second = await _safe_llm_call(client.chat.completions.create(
         model=settings.openai_model,
         messages=cast(list[ChatCompletionMessageParam], messages),
         temperature=0,
         seed=42,
-    )
+    ))
     parsed2 = parse_chat_completion(second)
     reply = next((p.content for p in parsed2 if isinstance(p, AssistantMessage)), "")
     return ChatResponse(reply=reply, tool_calls=traces)
@@ -144,18 +166,15 @@ SUGGEST_SYSTEM_PROMPT = (
 @router.post("/suggest_location", response_model=SuggestLocationResponse)
 async def suggest_location(body: SuggestLocationRequest) -> SuggestLocationResponse:
     client = get_openai_client()
-    resp = await client.chat.completions.create(
+    resp = await _safe_llm_call(client.chat.completions.create(
         model=settings.openai_model,
-        messages=cast(
-            list[ChatCompletionMessageParam],
-            [
-                {"role": "system", "content": SUGGEST_SYSTEM_PROMPT},
-                {"role": "user", "content": body.input},
-            ],
-        ),
+        messages=[
+            {"role": "system", "content": SUGGEST_SYSTEM_PROMPT},
+            {"role": "user", "content": body.input},
+        ],
         temperature=0,
         seed=42,
-    )
+    ))
     content = (resp.choices[0].message.content or "").strip()
     if content.startswith("```"):
         content = content.strip("`")
@@ -183,20 +202,11 @@ async def suggest_location(body: SuggestLocationRequest) -> SuggestLocationRespo
 
 
 TRAVEL_SYSTEM_PROMPT = (
-    "You are a concise, friendly travel assistant.\n"
-    "You have ONE tool: `get_forecast(location, units)` — CURRENT weather only.\n"
-    "\n"
-    "Rules:\n"
-    "1. Call `get_forecast` ONLY when weather is materially relevant "
-    "   (packing lists, what to wear, outdoor activity timing, weather-sensitive itineraries).\n"
-    "2. For general travel questions (visas, currency, culture, safety, best time to visit, "
-    "   attractions, food), answer directly from general knowledge — do NOT call the tool.\n"
-    "3. If you use tool data, ground your answer in it. Never invent specific numbers.\n"
-    "4. If asked about live prices, flight availability, or real-time events, say plainly "
-    "   that you don't have live data and suggest what the user should check.\n"
-    "\n"
-    "Formatting (IMPORTANT — output valid Markdown):\n"
-    "- Start with a one-sentence summary.\n"
+    "You are a helpful travel assistant. "
+    "When the user mentions a destination and the answer could be improved by "
+    "knowing current weather (packing, clothing, itineraries, outdoor plans), "
+    "call the `get_forecast` tool first, then tailor your reply to the conditions.\n\n"
+    "Format your reply in Markdown:\n"
     "- Use `##` for section headings when helpful.\n"
     "- Use bullet lists (`- `) or numbered lists (`1. `) for enumerations "
     "  (attractions, packing items, tips, itinerary steps).\n"
@@ -213,14 +223,14 @@ async def travel_chat(body: ChatRequest) -> ChatResponse:
         {"role": "user", "content": body.message},
     ]
 
-    first = await client.chat.completions.create(
+    first = await _safe_llm_call(client.chat.completions.create(
         model=settings.openai_model,
         messages=cast(list[ChatCompletionMessageParam], messages),
         tools=cast(list[ChatCompletionToolParam], TOOLS),
         tool_choice="auto",
         temperature=0.2,
         seed=42,
-    )
+    ))
     parsed = parse_chat_completion(first)
     traces: list[ToolCallTrace] = []
     tool_calls = [p for p in parsed if isinstance(p, ToolCallRequest)]
@@ -244,11 +254,11 @@ async def travel_chat(body: ChatRequest) -> ChatResponse:
             }
         )
 
-    second = await client.chat.completions.create(
+    second = await _safe_llm_call(client.chat.completions.create(
         model=settings.openai_model,
         messages=cast(list[ChatCompletionMessageParam], messages),
         temperature=0.2,
         seed=42,
-    )
+    ))
     reply = (second.choices[0].message.content or "").strip()
     return ChatResponse(reply=reply, tool_calls=traces)

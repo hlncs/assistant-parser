@@ -18,6 +18,8 @@ const TRAVEL_PROMPTS = [
   { label: 'Family friendly',         template: 'Suggest family-friendly activities in {loc} for kids aged 6–12.' },
   { label: 'Nightlife & evenings',    template: 'What are popular things to do in {loc} in the evening?' },
   { label: 'Hidden gems',             template: 'Share 3 lesser-known hidden gems in {loc} that most tourists miss.' },
+  { label: 'Three best fishing spots',template: 'Share 3 of the best fishing spots in {loc} if the weather allows.' },
+
 ]
 
 export default function TravelTab({ destination, onDestinationChange, otherLocation }) {
@@ -54,29 +56,30 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
 
   return (
     <>
-      <h1>Travel Assistant</h1>
-      <div className="layout">
+      <div className="page-header">
+        <h1>Travel Assistant</h1>
+        <button
+          type="button"
+          className="copy-loc-btn"
+          disabled={!canCopy}
+          onClick={() => onDestinationChange(otherLocation)}
+          title={canCopy ? `Use "${otherLocation}" from Weather tab` : 'No location on Weather tab yet'}
+          aria-label="Use Weather location"
+        >
+          ↔ Use Weather location
+        </button>
+      </div>
+
+      <div className="layout layout-single">
         <div className="col-main">
           <div className="form">
             <label>
               Destination
-              <div className="input-with-action">
-                <input
-                  value={destination}
-                  onChange={(e) => onDestinationChange(e.target.value)}
-                  placeholder="Tokyo, Japan"
-                />
-                <button
-                  type="button"
-                  className="copy-loc-btn"
-                  disabled={!canCopy}
-                  onClick={() => onDestinationChange(otherLocation)}
-                  title={canCopy ? `Use “${otherLocation}” from Weather tab` : 'No location on Weather tab yet'}
-                  aria-label="Copy location from Weather tab"
-                >
-                  ↔ Use Weather location
-                </button>
-              </div>
+              <input
+                value={destination}
+                onChange={(e) => onDestinationChange(e.target.value)}
+                placeholder="Tokyo, Japan"
+              />
             </label>
           </div>
 
@@ -106,7 +109,7 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
                 <span className="thinking-dots" aria-hidden="true">
                   <span></span><span></span><span></span>
                 </span>
-                Thinking…
+                Thinking
               </div>
             )}
 
@@ -118,6 +121,40 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
                 <div className="assistant-reply markdown">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{response.reply}</ReactMarkdown>
                 </div>
+
+                {Array.isArray(response.tool_calls) && response.tool_calls.length > 0 && (
+                  <details className="tool-trace" open>
+                    <summary>Tool calls ({response.tool_calls.length})</summary>
+                    <ul className="trace-list">
+                      {response.tool_calls.map((tc) => (
+                        <li key={tc.id} className="trace-item">
+                          <div className="trace-header">
+                            <code>{tc.name}</code>
+                            <span className={`trace-status ${tc.error ? 'err' : 'ok'}`}>
+                              {tc.error ? 'error' : 'ok'}
+                            </span>
+                          </div>
+                          <div className="trace-row">
+                            <span className="trace-label">args</span>
+                            <code>{JSON.stringify(tc.arguments)}</code>
+                          </div>
+                          {tc.result && (
+                            <div className="trace-row">
+                              <span className="trace-label">result</span>
+                              <code>{JSON.stringify(tc.result)}</code>
+                            </div>
+                          )}
+                          {tc.error && (
+                            <div className="trace-row error-row">
+                              <span className="trace-label">error</span>
+                              <code>{tc.error}</code>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </>
             )}
 
