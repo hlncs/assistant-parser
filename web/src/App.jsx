@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import WeatherTab from './WeatherTab'
 import TravelTab from './TravelTab'
+import ThemeToggle from './ThemeToggle'
 import './App.css'
 
 const TABS = [
@@ -10,8 +11,12 @@ const TABS = [
 
 export default function App() {
   const [tab, setTab] = useState('weather')
+  const [weatherLoc, setWeatherLoc] = useState({ city: 'Sydney', country: 'Australia' })
+  const [travelLoc, setTravelLoc] = useState('Tokyo, Japan')
+
   return (
     <div className="app">
+      <ThemeToggle />
       <div className="tabs" role="tablist">
         {TABS.map((t) => (
           <button
@@ -25,7 +30,26 @@ export default function App() {
           </button>
         ))}
       </div>
-      {tab === 'weather' ? <WeatherTab /> : <TravelTab />}
+
+      <div hidden={tab !== 'weather'}>
+        <WeatherTab
+          city={weatherLoc.city}
+          country={weatherLoc.country}
+          onLocationChange={(city, country) => setWeatherLoc({ city, country })}
+          otherLocation={travelLoc}
+        />
+      </div>
+      <div hidden={tab !== 'travel'}>
+        <TravelTab
+          destination={travelLoc}
+          onDestinationChange={setTravelLoc}
+          otherLocation={
+            weatherLoc.city
+              ? [weatherLoc.city, weatherLoc.country].filter(Boolean).join(', ')
+              : ''
+          }
+        />
+      </div>
     </div>
   )
 }

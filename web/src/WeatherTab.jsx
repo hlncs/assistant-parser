@@ -33,9 +33,7 @@ function formatForecastTime(utcIso, tz) {
   return `${local} (${utcIso})`
 }
 
-export default function WeatherTab() {
-  const [city, setCity] = useState('Sydney')
-  const [country, setCountry] = useState('Australia')
+export default function WeatherTab({ city, country, onLocationChange, otherLocation }) {
   const [units, setUnits] = useState('metric')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -44,6 +42,15 @@ export default function WeatherTab() {
   const [coords, setCoords] = useState(null)
   const [suggestions, setSuggestions] = useState([])
   const [suggestLoading, setSuggestLoading] = useState(false)
+
+  const canCopy =
+    Boolean(otherLocation) &&
+    otherLocation !== [city, country].filter(Boolean).join(', ')
+
+  function copyFromTravel() {
+    const { city: c, country: co } = splitLocation(otherLocation)
+    onLocationChange(c, co)
+  }
 
   async function fetchFor(cityArg, countryArg, unitsArg) {
     setLoading(true)
@@ -86,8 +93,7 @@ export default function WeatherTab() {
 
   function applySuggestion(text) {
     const { city: c, country: co } = splitLocation(text)
-    setCity(c)
-    setCountry(co)
+    onLocationChange(c, co)
     setSuggestions([])
     fetchFor(c, co, units)
   }
@@ -100,21 +106,11 @@ export default function WeatherTab() {
           <form onSubmit={onSubmit} className="form">
             <label>
               City
-              <input
-                required
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="Sydney"
-              />
+              <input value={city} onChange={(e) => onLocationChange(e.target.value, country)} />
             </label>
-
             <label>
               Country
-              <input
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                placeholder="Australia"
-              />
+              <input value={country} onChange={(e) => onLocationChange(city, e.target.value)} />
             </label>
 
             <label>
@@ -127,6 +123,17 @@ export default function WeatherTab() {
 
             <button type="submit" disabled={loading || !city.trim()}>
               {loading ? 'Fetching…' : 'Get Forecast'}
+            </button>
+
+            <button
+              type="button"
+              className="copy-loc-btn"
+              disabled={!canCopy}
+              onClick={copyFromTravel}
+              title={canCopy ? `Use “${otherLocation}” from Travel tab` : 'No destination on Travel tab yet'}
+              aria-label="Copy location from Travel tab"
+            >
+              ↔ Use Travel location
             </button>
           </form>
 
