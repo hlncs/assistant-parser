@@ -1,23 +1,20 @@
 You are a Senior Developer, AI Engineer, and AI Architect.
 
-## Goal
-Build a small service (`assistant-parser`) that:
-1. Exposes an HTTP endpoint the OpenAI Assistant can invoke as a **tool call**.
-2. Parses OpenAI Chat Completions responses (including `tool_calls`) into typed, validated objects.
-3. Demonstrates the full two-turn tool-calling loop with a weather-forecast example.
-
-## Tech stack
-- Language: Python 3.14+
+## Stack
+- Language: Python 3.12+
 - Framework: FastAPI + Uvicorn
-- Validation: Pydantic v2
-- OpenAI SDK: `openai` ≥ 1.40, model `mlx-community/Meta-Llama-3.1-8B-Instruct-4bit` hosted on localhost at port 8889
+- Validation: Pydantic v2 + pydantic-settings
+- OpenAI SDK: `openai` ≥ 1.40
+- LLM backend (OpenAI-compatible, localhost:8889): **either**
+  - `mlx_lm.server` serving `mlx-community/Meta-Llama-3.1-8B-Instruct-4bit`, **or**
+  - `llama-server --jinja` (llama.cpp ≥ b4599) serving a Llama-3.1-8B-Instruct GGUF
 - Weather data:
-  - **Primary (initial test)**: [Open-Meteo](https://open-meteo.com) — no API key required
+  - **Primary**: [Open-Meteo](https://open-meteo.com) — no API key
     - Geocoding: `GET https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1`
     - Forecast:  `GET https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true`
   - **Optional**: OpenWeatherMap (requires `OPENWEATHER_API_KEY`)
-- Tests: pytest + httpx
-- Packaging: `pyproject.toml`, ruff + mypy
+- Tests: pytest + httpx MockTransport (fully offline)
+- Packaging: `pyproject.toml` (hatchling), ruff + mypy
 
 ## Functional requirements
 
@@ -26,11 +23,17 @@ Build a small service (`assistant-parser`) that:
 - Output: a discriminated union:
   - `AssistantMessage(content: str)`
   - `ToolCallRequest(id: str, name: str, arguments: dict)`
-- Must handle: multiple tool calls, malformed JSON arguments (raise `ParserError`), empty content.
+- Must handle: multiple tool calls, malformed JSON arguments (raise `ParserError`), empty content, no choices (raise `ParserError`).
+- **Llama-content fallback**: when `tool_calls` is empty but `content` contains a JSON object of shape
+  `{"name": "...", "parameters"|"arguments": {...}}` (optionally wrapped in `<|python_tag|>` markers),
+  synthesise a `ToolCallRequest` with a `call_<8hex>` id. Required to support `mlx_lm.server`, which
+  does not translate Llama-3.1's native tool-call format into the OpenAI `tool_calls` field.
+- Backend selection is transparent to the parser: `llama-server --jinja` takes the native path;
+  `mlx_lm.server` takes the fallback path.
 
 ### 2. Tool endpoint
 - `POST /tools/get_forecast`
-- Backed by Open-Meteo by default; provider selectable via env `WEATHER_PROVIDER=open-meteo|openweathermap` (default: `open-meteo`).
+- Provider selectable via env `WEATHER_PROVIDER=open-meteo|openweathermap` (default: `open-meteo`).
 - Request body:
   ```json
   { "location": "Sydney, Australia", "units": "metric" }
@@ -40,43 +43,33 @@ Build a small service (`assistant-parser`) that:
   {
     "location": "Sydney, Australia",
     "temperature_c": 21.4,
-    "condition": "Partly cloudy",
+    "condition": "Partly Cloudy",
     "forecast_time_utc": "2026-09-06T04:00:00Z",
-    "provider": "openweathermap"
+    "provider": "open-meteo"
   }
   ```
-- Mapping from Open-Meteo response:
-  - `temperature_c` ← `current_weather.temperature` (Open-Meteo returns °C by default)
-  - `condition`     ← mapped from `current_weather.weathercode` via a WMO-code lookup table (title-cased)
-  - `forecast_time_utc` ← `current_weather.time` (ISO-8601, treat as UTC)
-  - `location`      ← echoed from request (verified against geocoding `name` + `country`)
-- Errors:
-  - `400` invalid location (geocoding returns no results → `code: "invalid_location"`)
-  - `429` upstream rate limit → `502` with `code: "upstream_rate_limited"`
-  - `502` any other upstream failure
-  - Structured error envelope: `{ "error": { "code", "message" } }`.
+- Mapping from Open-Meteo:
+  - `temperature_c` ← `current_weather.temperature` (°C by default)
+  - `condition` ← WMO-code lookup table, title-cased
+  - `forecast_time_utc` ← `current_weather.time` (append `Z` if not already UTC-suffixed)
+  - `location` ← geocoded `name, country` when available, else echoed
+- Errors (structured envelope `{ "error": { "code", "message" } }`):
+  - `400 invalid_location` — geocoding returned no results
+  - `502 upstream_rate_limited` — upstream 429
+  - `502 upstream_error` / `upstream_unreachable` — other upstream failures
+  - `502 upstream_llm_error` — LLM backend returned a 4xx/5xx (raised via `openai.APIStatusError` handler)
 
-### 3. Orchestrator (`POST /chat`)
-- Accepts `{ "message": "What's the forecast in Sydney?" }`.
-- Calls OpenAI with a `get_forecast` tool definition.
-- If the model returns a `tool_calls`, invoke `/tools/get_forecast` internally, append the tool result, and re-invoke the model.
-- Returns the final assistant message plus a trace of tool calls.
+### 3. Chat orchestrator
+- `POST /chat` with `{"message": "..."}`.
+- Two-turn tool-calling loop:
+  1. Call LLM with `tools=[get_forecast]`, `tool_choice="auto"`.
+  2. If `tool_calls` are emitted (native or via fallback), dispatch **in-process** via `get_forecast_direct`
+     (no self-HTTP), append `tool` messages, call LLM again for the grounded reply.
+- Response: `{"reply": str, "tool_calls": [ToolCallTrace, ...]}` where each trace records
+  `id`, `name`, `arguments`, `result`, `error`.
 
-## Non-functional requirements
-- Structured logging (JSON) with correlation IDs.
-- `.env` for `OPENAI_API_KEY` **and `OPENWEATHER_API_KEY`**; never log secrets or full upstream URLs containing `appid`.
-- Unit tests for the parser (happy path + 3 edge cases) and an integration test for `/chat` using a mocked OpenAI client.
-- Dockerfile + `docker compose up` runs the service on port 8000.
-
-## Deliverables
-1. Repo layout with `app/`, `parser/`, `tests/`, `README.md`.
-2. README with: setup, run, example `curl` for `/chat`, and a sequence diagram of the tool-call loop.
-3. All tests passing; `ruff` and `mypy` clean.
-
-## Acceptance test
-```bash
-curl -s localhost:8000/chat -d '{"message":"What is the current forecast in Sydney, Australia?"}' \
-  -H 'content-type: application/json'
-```
-Must return a natural-language answer grounded in the tool result, plus the tool-call trace.
+### 4. Cross-cutting
+- JSON logging (`python-json-logger`) with per-request `x-correlation-id` (generated if absent).
+- `openai.APIStatusError` is surfaced as `502 upstream_llm_error` with the upstream body truncated to 2000 chars.
+- `.env` config via `pydantic-settings`; defaults are safe (no secrets required for the Open-Meteo path).
 
