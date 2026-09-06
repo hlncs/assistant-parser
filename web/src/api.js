@@ -27,3 +27,16 @@ export async function geocode({ city, country }) {
   if (!hit) return null
   return { lat: hit.latitude, lon: hit.longitude, label: `${hit.name}, ${hit.country}` }
 }
+
+export async function askChat(message) {
+  const res = await fetch(`${BASE}/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(body?.error?.message || `HTTP ${res.status}`)
+  }
+  return body // { reply, tool_calls: [...] }
+}

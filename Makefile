@@ -1,4 +1,4 @@
-.PHONY: install run test lint type fmt
+.PHONY: install run test lint type fmt web-install web-dev web-build
 
 install:
 	python3 -m pip install -e '.[dev]'
@@ -17,3 +17,12 @@ fmt:
 
 type:
 	mypy
+
+web-install:
+	cd web && npm install
+
+web-dev:
+	cd web && npm run dev
+
+web-build:
+	cd web && npm run build

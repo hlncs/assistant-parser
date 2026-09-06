@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.errors import register_error_handlers
@@ -23,13 +23,27 @@ async def lifespan(app: FastAPI):
         await app.state.http.aclose()
 
 
-app = FastAPI(title="assistant-parser", lifespan=lifespan)
-app.add_middleware(BaseHTTPMiddleware, dispatch=correlation_middleware)
-register_error_handlers(app)
-app.include_router(tools_router)
-app.include_router(chat_router)
+def create_app() -> FastAPI:
+    app = FastAPI(lifespan=lifespan, title="assistant-parser")
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(tools_router)
+    app.include_router(chat_router)
+
+    register_error_handlers(app)
+
+    @app.get("/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    return app
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+app = create_app()

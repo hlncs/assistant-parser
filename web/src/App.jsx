@@ -1,7 +1,14 @@
 import { useState } from 'react'
 import { getForecast, geocode } from './api'
 import MapView from './MapView'
+import InsightsPane from './InsightsPane'
 import './App.css'
+
+function formatTemp(celsius, units) {
+  if (celsius == null) return '—'
+  if (units === 'imperial') return `${(celsius * 9 / 5 + 32).toFixed(1)}°F`
+  return `${celsius.toFixed(1)}°C`
+}
 
 export default function App() {
   const [city, setCity] = useState('Sydney')
@@ -25,7 +32,7 @@ export default function App() {
         geocode({ city: city.trim(), country: country.trim() }).catch(() => null),
       ])
       setForecast(data)
-      setDisplayUnits(units)          // freeze the unit that produced this result
+      setDisplayUnits(units)
       setCoords(geo)
     } catch (err) {
       setError(err.message)
@@ -34,69 +41,66 @@ export default function App() {
     }
   }
 
-  function formatTemp(celsius, units) {
-    if (celsius == null) return '—'
-    if (units === 'imperial') {
-      const f = celsius * 9 / 5 + 32
-      return `${f.toFixed(1)}°F`
-    }
-    return `${celsius.toFixed(1)}°C`
-  }
-
   return (
     <div className="app">
       <h1>Weather Forecast</h1>
 
-      <form onSubmit={onSubmit} className="form">
-        <label>
-          City
-          <input
-            required
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            placeholder="Sydney"
-          />
-        </label>
+      <div className="layout">
+        {/* LEFT column: form + forecast + map */}
+        <div className="col-main">
+          <form onSubmit={onSubmit} className="form">
+            <label>
+              City
+              <input
+                required
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="Sydney"
+              />
+            </label>
 
-        <label>
-          Country
-          <input
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-            placeholder="Australia"
-          />
-        </label>
+            <label>
+              Country
+              <input
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                placeholder="Australia"
+              />
+            </label>
 
-        <label>
-          Units
-          <select value={units} onChange={(e) => setUnits(e.target.value)}>
-            <option value="metric">Metric (°C)</option>
-            <option value="imperial">Imperial (°F)</option>
-          </select>
-        </label>
+            <label>
+              Units
+              <select value={units} onChange={(e) => setUnits(e.target.value)}>
+                <option value="metric">Metric (°C)</option>
+                <option value="imperial">Imperial (°F)</option>
+              </select>
+            </label>
 
-        <button type="submit" disabled={loading || !city.trim()}>
-          {loading ? 'Fetching…' : 'Get Forecast'}
-        </button>
-      </form>
+            <button type="submit" disabled={loading || !city.trim()}>
+              {loading ? 'Fetching…' : 'Get Forecast'}
+            </button>
+          </form>
 
-      {error && <div className="error">⚠️ {error}</div>}
+          {error && <div className="error">⚠️ {error}</div>}
 
-      {forecast && (
-        <div className="card">
-          <h2>{forecast.location}</h2>
-          <div className="temp">{formatTemp(forecast.temperature_c, displayUnits)}</div>
-          <div className="condition">{forecast.condition}</div>
-          <div className="meta">
-            <span>As of {forecast.forecast_time_utc}</span>
-            <span>Provider: {forecast.provider}</span>
-          </div>
+          {forecast && (
+            <div className="card">
+              <h2>{forecast.location}</h2>
+              <div className="temp">{formatTemp(forecast.temperature_c, displayUnits)}</div>
+              <div className="condition">{forecast.condition}</div>
+              <div className="meta">
+                <span>As of {forecast.forecast_time_utc}</span>
+                <span>Provider: {forecast.provider}</span>
+              </div>
+            </div>
+          )}
+
+          {coords && <MapView lat={coords.lat} lon={coords.lon} label={coords.label} />}
         </div>
-      )}
 
-      {coords && (
-        <MapView lat={coords.lat} lon={coords.lon} label={coords.label} />
-      )}
+        {/* RIGHT column: canned prompts + LLM response */}
+        <InsightsPane location={forecast?.location ?? null} />
+      </div>
     </div>
   )
 }

@@ -17,10 +17,19 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 SYSTEM_PROMPT = (
-    "You are a helpful assistant with access to tools. "
-    "When the user asks about current weather or forecast, you MUST call the "
-    "`get_forecast` function with a specific location string (e.g. 'Sydney, Australia'). "
-    "Do not answer weather questions from prior knowledge."
+    "You are a concise, friendly weather assistant.\n"
+    "You have ONE tool: `get_forecast(location, units)` that returns CURRENT weather only.\n"
+    "\n"
+    "Rules:\n"
+    "1. For ANY question that references a specific location's weather — including "
+    "   'current', 'now', 'today', 'summarise', 'describe', 'compare', 'what should I wear' — "
+    "   you MUST call `get_forecast` first with that location.\n"
+    "2. After the tool result is available, ALWAYS produce a natural-language answer "
+    "   grounded in that result. Never refuse. Never say you cannot answer.\n"
+    "3. You have NO historical or forecast-beyond-now data. If asked about the past or "
+    "   future, answer qualitatively from general climate knowledge and say so plainly. "
+    "   Never invent specific numbers. Never write pseudo-code.\n"
+    "4. Keep replies to 1–3 sentences unless the user asks for more."
 )
 
 
@@ -43,16 +52,22 @@ async def chat(body: ChatRequest) -> ChatResponse:
         {"role": "user", "content": body.message},
     ]
 
-    # Turn 1
+    # Turn 1 — force get_forecast so we always have grounded data
     first = await client.chat.completions.create(
-        model=settings.openai_model, messages=messages, tools=TOOLS
+        model=settings.openai_model,
+        messages=messages,
+        tools=TOOLS,
+        tool_choice={"type": "function", "function": {"name": "get_forecast"}},
+        temperature=0,
+        seed=42,
     )
     parsed = parse_chat_completion(first)
     traces: list[ToolCallTrace] = []
 
     tool_calls = [p for p in parsed if isinstance(p, ToolCallRequest)]
     if not tool_calls:
-        # No tool needed; return assistant content directly.
+        log.warning("chat: forced tool_choice but model emitted no tool_calls; content=%r",
+                    first.choices[0].message.content)
         msg = next((p for p in parsed if isinstance(p, AssistantMessage)), None)
         return ChatResponse(reply=msg.content if msg else "", tool_calls=[])
 
@@ -89,7 +104,10 @@ async def chat(body: ChatRequest) -> ChatResponse:
 
     # Turn 2
     second = await client.chat.completions.create(
-        model=settings.openai_model, messages=messages
+        model=settings.openai_model,
+        messages=messages,
+        temperature=0,
+        seed=42,
     )
     parsed2 = parse_chat_completion(second)
     reply = next((p.content for p in parsed2 if isinstance(p, AssistantMessage)), "")

@@ -18,5 +18,9 @@ class Settings(BaseSettings):
 
     request_timeout_s: float = 15.0
 
+    cors_allow_origins: list[str] = Field(
+        default=["http://localhost:5173", "http://127.0.0.1:5173"]
+    )
+
 
 settings = Settings()
