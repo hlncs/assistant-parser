@@ -5,7 +5,7 @@ import logging
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
 from app.config import settings
 from app.errors import AppError
@@ -65,7 +65,7 @@ async def chat(body: ChatRequest) -> ChatResponse:
     first = await client.chat.completions.create(
         model=settings.openai_model,
         messages=cast(list[ChatCompletionMessageParam], messages),
-        tools=TOOLS,
+        tools=cast(list[ChatCompletionToolParam], TOOLS),
         tool_choice={"type": "function", "function": {"name": "get_forecast"}},
         temperature=0,
         seed=42,
@@ -146,10 +146,13 @@ async def suggest_location(body: SuggestLocationRequest) -> SuggestLocationRespo
     client = get_openai_client()
     resp = await client.chat.completions.create(
         model=settings.openai_model,
-        messages=[
-            {"role": "system", "content": SUGGEST_SYSTEM_PROMPT},
-            {"role": "user", "content": body.input},
-        ],
+        messages=cast(
+            list[ChatCompletionMessageParam],
+            [
+                {"role": "system", "content": SUGGEST_SYSTEM_PROMPT},
+                {"role": "user", "content": body.input},
+            ],
+        ),
         temperature=0,
         seed=42,
     )

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
@@ -14,7 +15,7 @@ from app.weather.router import router as tools_router
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     app.state.http = httpx.AsyncClient(timeout=settings.request_timeout_s)
     try:
@@ -47,3 +48,13 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+@app.middleware("http")
+async def correlation_id_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = request.headers.get("X-Correlation-ID", "")
+    return response

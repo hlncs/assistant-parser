@@ -46,16 +46,19 @@ class OpenMeteoProvider:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
 
-    async def _get(self, url: str, params: dict[str, object]) -> dict:
+    async def _get(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
+        typed_params: dict[str, str | int | float | bool] = {
+            k: v for k, v in params.items() if isinstance(v, (str, int, float, bool))
+        }
         try:
-            r = await self._client.get(url, params=params)
+            r = await self._client.get(url, params=typed_params)
         except httpx.HTTPError as e:
             raise AppError("upstream_unreachable", str(e), status_code=502) from e
         if r.status_code == 429:
             raise AppError("upstream_rate_limited", "Upstream rate limit", status_code=502)
         if r.status_code >= 400:
             raise AppError("upstream_error", f"Upstream {r.status_code}", status_code=502)
-        return r.json()
+        return cast(dict[str, Any], r.json())
 
     async def get_forecast(self, location: str, units: str) -> ForecastResponse:
         geo = await self._get(GEOCODE_URL, {"name": location, "count": 1})
@@ -67,14 +70,10 @@ class OpenMeteoProvider:
         lat, lon = top["latitude"], top["longitude"]
         resolved = ", ".join(x for x in [top.get("name"), top.get("country")] if x)
 
-        params: dict[str, str | int | float] = {
-            "latitude": lat,
-            "longitude": lon,
-            "current_weather": "true",
-        }
-        resp = await self._client.get(FORECAST_URL, params=params)
-        resp.raise_for_status()
-        fx = cast(dict[str, Any], resp.json())
+        fx = await self._get(
+            FORECAST_URL,
+            {"latitude": lat, "longitude": lon, "current_weather": "true"},
+        )
 
         cw = fx.get("current_weather") or {}
         if not cw:
