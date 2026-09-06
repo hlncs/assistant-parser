@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { askTravel, suggestLocation } from './api'
+import { askTravel, suggestLocation, geocode } from './api'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -19,7 +19,18 @@ const TRAVEL_PROMPTS = [
   { label: 'Nightlife & evenings',    template: 'What are popular things to do in {loc} in the evening?' },
   { label: 'Hidden gems',             template: 'Share 3 lesser-known hidden gems in {loc} that most tourists miss.' },
   { label: 'Three best fishing spots',template: 'Share 3 of the best fishing spots in {loc} if the weather allows.' },
-
+  { label: 'Local events',            template: 'What local events or festivals are happening in {loc} during my visit?' },
+  { label: 'Travel restrictions',     template: 'Are there any travel restrictions or requirements for visiting {loc}?' },
+  { label: 'Visa & docs',             template: 'What visa or documentation do I need to visit {loc}?' },
+  { label: 'Public transport',        template: 'How does public transport work in {loc}? Include costs and tips.' },
+  { label: 'Best beaches',            template: 'What are the best beaches in or near {loc}?' },
+  { label: 'Local markets',           template: 'What local markets or shopping areas are worth visiting in {loc}?' },
+  { label: 'Hiking & nature',         template: 'What are the best hiking trails or nature spots in {loc}?' },
+  { label: 'Cultural experiences',    template: 'What cultural experiences or workshops can I participate in while in {loc}?' },
+  { label: 'Photography spots',       template: 'Where are the best photography spots in {loc} for capturing iconic views?' },
+  { label: 'Local music scene',       template: 'What is the local music scene like in {loc}? Any venues or events to check out?' },
+  { label: 'Day-to-night itinerary',  template: 'Plan a day-to-night itinerary for {loc}, including meals, activities, and accommodations.' },
+  { label: "Parks",                    template: "What are the best parks or green spaces to visit, within a walking distance in {loc}? Show me a list including distances." },
 ]
 
 export default function TravelTab({ destination, onDestinationChange, otherLocation }) {
@@ -32,6 +43,7 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
   const [suggestions, setSuggestions] = useState([])
   const [suggestConfidence, setSuggestConfidence] = useState(null)
   const [checking, setChecking] = useState(false)
+  const [coords, setCoords] = useState(null)   // { lat, lon, label }
 
   useEffect(() => {
     setResponse(null)
@@ -42,6 +54,22 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
   const canAsk = Boolean(destination?.trim())
   const canCopy = Boolean(otherLocation?.trim())
 
+  // ── helper: geocode a resolved place and store coords ──
+  async function locateAndShow(place) {
+    try {
+      const [city, ...rest] = place.split(',').map((s) => s.trim())
+      const country = rest.length ? rest[rest.length - 1] : ''
+      const geo = await geocode({ city, country })
+      if (geo && geo.lat != null && geo.lon != null) {
+        setCoords({ lat: geo.lat, lon: geo.lon, label: geo.display_name || place })
+      } else {
+        setCoords(null)
+      }
+    } catch {
+      setCoords(null)
+    }
+  }
+
   async function checkDestination() {
     if (!canAsk) return
     setChecking(true)
@@ -50,14 +78,16 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
     try {
       const body = await suggestLocation(destination.trim())
       const list = Array.isArray(body?.suggestions) ? body.suggestions : []
-      // Show chips only if not high-confidence exact match
-      if (body?.confidence !== 'high' && list.length > 0) {
+      if (body?.confidence === 'high' && list.length === 1) {
+        // Exact / corrected match — accept, geocode, show map
+        if (list[0] !== destination.trim()) onDestinationChange(list[0])
+        await locateAndShow(list[0])
+      } else if (list.length > 0) {
         setSuggestions(list)
         setSuggestConfidence(body.confidence)
-      } else if (list.length === 1 && list[0] !== destination.trim()) {
-        // High confidence but corrected spelling — still offer the fix
-        setSuggestions(list)
-        setSuggestConfidence('high')
+        setCoords(null)
+      } else {
+        setCoords(null)
       }
     } catch (err) {
       setError(err.message)
@@ -66,10 +96,11 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
     }
   }
 
-  function applySuggestion(s) {
+  async function applySuggestion(s) {
     onDestinationChange(s)
     setSuggestions([])
     setSuggestConfidence(null)
+    await locateAndShow(s)
   }
 
   async function ask(template) {
@@ -158,6 +189,24 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
               </>
             )}
           </div>
+
+          {coords && (
+            <section className="map">
+              <iframe
+                title="Destination map"
+                src={`https://www.openstreetmap.org/export/embed.html?bbox=${coords.lon - 0.15},${coords.lat - 0.1},${coords.lon + 0.15},${coords.lat + 0.1}&layer=mapnik&marker=${coords.lat},${coords.lon}`}
+                loading="lazy"
+              />
+              <a
+                className="map-link"
+                href={`https://www.openstreetmap.org/?mlat=${coords.lat}&mlon=${coords.lon}#map=11/${coords.lat}/${coords.lon}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open larger map ↗
+              </a>
+            </section>
+          )}
 
           <section className="insights-section">
             <h3>Ask the Assistant</h3>
