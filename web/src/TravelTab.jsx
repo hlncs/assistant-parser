@@ -31,6 +31,13 @@ const TRAVEL_PROMPTS = [
   { label: 'Local music scene',       template: 'What is the local music scene like in {loc}? Any venues or events to check out?' },
   { label: 'Day-to-night itinerary',  template: 'Plan a day-to-night itinerary for {loc}, including meals, activities, and accommodations.' },
   { label: "Parks",                    template: "What are the best parks or green spaces to visit, within a walking distance in {loc}? Show me a list including distances." },
+  { label: "Best flights",             template: "What are the best options for booking flights to {loc}?" },
+  { label: "Best hotels",              template: "What are the best options for booking hotels in {loc}?" },
+  {
+    label: "Book flights & hotels now",
+    template: "__PAID_STUB__",
+    stubReply: "💳 **Paid feature — currently not available.**\n\nBooking integrations (Amadeus / Duffel / Booking.com) will appear here in a future release.",
+  },
 ]
 
 export default function TravelTab({ destination, onDestinationChange, otherLocation }) {
@@ -116,8 +123,19 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
     await locateAndShow(s)
   }
 
-  async function ask(template) {
+  async function ask(promptDef) {
     if (!canAsk) return
+    // Support both the old shape (string template) and the new prompt-def object.
+    const template = typeof promptDef === 'string' ? promptDef : promptDef.template
+    const stubReply = typeof promptDef === 'object' ? promptDef.stubReply : null
+
+    if (stubReply) {
+      setError(null)
+      setActivePrompt(promptDef.label)
+      setResponse({ reply: stubReply, tool_calls: [] })
+      return
+    }
+
     const message = template.replaceAll('{loc}', destination.trim())
     setLoading(true)
     setError(null)
@@ -125,7 +143,6 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
     setActivePrompt(message)
     try {
       const body = await askTravel(message)
-      console.log('travel_chat response:', body)
       if (!body || typeof body.reply !== 'string') {
         setError('The assistant returned an empty response. Please try again.')
         return
@@ -231,12 +248,12 @@ export default function TravelTab({ destination, onDestinationChange, otherLocat
             <div className="prompt-grid">
               {TRAVEL_PROMPTS.map((p) => (
                 <button
-                  key={p.template}
+                  key={p.label}
                   type="button"
                   className="prompt-chip"
                   disabled={!canAsk || loading}
-                  onClick={() => ask(p.template)}
-                  title={p.template.replace('{loc}', destination || '')}
+                  onClick={() => ask(p)}
+                  title={p.stubReply ? p.label : p.template.replace('{loc}', destination || '')}
                 >
                   {p.label}
                 </button>
