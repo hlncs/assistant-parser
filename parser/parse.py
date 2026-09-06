@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import re
 import uuid
+import logging
 from typing import Any
 
 from .models import AssistantMessage, ParsedItem, ParserError, ToolCallRequest
+
+log = logging.getLogger(__name__)
 
 
 def _to_dict(obj: Any) -> dict[str, Any]:
@@ -62,6 +65,7 @@ def parse_chat_completion(completion: Any) -> list[ParsedItem]:
     tool_calls = message.get("tool_calls") or []
 
     if tool_calls:
+        log.debug("parser: native tool_calls path (%d calls)", len(tool_calls))
         items: list[ParsedItem] = []
         for tc in tool_calls:
             fn = tc.get("function") or {}
@@ -86,6 +90,7 @@ def parse_chat_completion(completion: Any) -> list[ParsedItem]:
     # Fallback: Llama-style tool call embedded in content.
     fallback = _try_extract_llama_tool_call(content)
     if fallback is not None:
+        log.info("parser: llama-content fallback fired")
         return [fallback]
 
     return [AssistantMessage(content=content)]

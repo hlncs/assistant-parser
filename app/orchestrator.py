@@ -45,7 +45,7 @@ async def chat(body: ChatRequest) -> ChatResponse:
 
     # Turn 1
     first = await client.chat.completions.create(
-        model=settings.openai_model, messages=messages, tools=TOOLS, tool_choice="auto"
+        model=settings.openai_model, messages=messages, tools=TOOLS
     )
     parsed = parse_chat_completion(first)
     traces: list[ToolCallTrace] = []
@@ -84,7 +84,7 @@ async def chat(body: ChatRequest) -> ChatResponse:
             tool_content = json.dumps({"error": {"code": e.code, "message": e.message}})
         traces.append(trace)
         messages.append(
-            {"role": "tool", "tool_call_id": tc.id, "name": tc.name, "content": tool_content}
+            {"role": "tool", "tool_call_id": tc.id, "content": tool_content}
         )
 
     # Turn 2
